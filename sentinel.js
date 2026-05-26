@@ -16,6 +16,7 @@
  *  3. Vendor Risk Radar         — supplier breaches, layoffs, distress
  */
 
+require("dotenv").config();
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 const Anthropic = require("@anthropic-ai/sdk");
@@ -64,7 +65,7 @@ async function brightDataFetch(url) {
           password: BRIGHT_DATA_WU_PASSWORD,
         },
       },
-      timeout: 60000,
+      timeout: 25000,
     });
     return response.data;
   } catch (err) {
@@ -92,7 +93,7 @@ async function brightDataSERP(query) {
             password: BRIGHT_DATA_SERP_PASSWORD,
           },
         },
-        timeout: 60000,
+        timeout: 25000,
       });
       const results = response.data?.organic || [];
       if (results.length > 0) {
@@ -183,7 +184,7 @@ async function webScraperApiFetch(url) {
           Authorization: `Bearer ${BRIGHT_DATA_API_KEY}`,
           "Content-Type": "application/json",
         },
-        timeout: 60000,
+        timeout: 25000,
       }
     );
     console.log(`[Web Scraper API] Successfully fetched ${url}`);
@@ -196,10 +197,9 @@ async function webScraperApiFetch(url) {
 }
 
 // ─────────────────────────────────────────────
-// CLAUDE — Risk object generator
+// CLAUDE — Risk object generator (with prompt caching)
 // ─────────────────────────────────────────────
-async function analyzeWithClaude(rawContent, signalType, orgProfile) {
-  const systemPrompt = `You are Sentinel, an AI security analyst. Analyze raw web content and extract structured risk intelligence.
+const CLAUDE_SYSTEM_PROMPT = `You are Sentinel, an AI security analyst. Analyze raw web content and extract structured risk intelligence.
 Always respond with a valid JSON object only — no markdown, no preamble.
 
 Risk object schema:
@@ -218,6 +218,7 @@ Risk object schema:
 
 If no risk is detected, return severity: "none" with a brief summary.`;
 
+async function analyzeWithClaude(rawContent, signalType, orgProfile) {
   const userPrompt = `Org profile: ${JSON.stringify(orgProfile)}
 Signal type being checked: ${signalType}
 Raw content to analyze:
@@ -228,9 +229,9 @@ Extract any risk signals relevant to this org. Return the risk object JSON.`;
 
   try {
     const msg = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
-      system: systemPrompt,
+      system: [{ type: "text", text: CLAUDE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: userPrompt }],
     });
     const text = msg.content[0].text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
@@ -255,19 +256,22 @@ async function threatSurfaceMonitor(orgProfile) {
     `"${orgProfile.domain}" password dump`,
   ];
 
-  const results = [];
-  for (const query of searchQueries) {
-    const serpResults = await brightDataSERP(query);
-    if (serpResults.length > 0) {
+  const settled = await Promise.allSettled(
+    searchQueries.map(async (query) => {
+      const serpResults = await brightDataSERP(query);
+      if (serpResults.length === 0) return null;
       const topResult = serpResults[0];
       const content = `Title: ${topResult.title}\nURL: ${topResult.link}\nSnippet: ${topResult.snippet}`;
       const riskObj = await analyzeWithClaude(content, "credential_leak", orgProfile);
       riskObj.source_url = topResult.link;
       riskObj.detected_at = new Date().toISOString();
-      results.push(riskObj);
-    }
-  }
-  return results.filter((r) => r.severity !== "none");
+      return riskObj;
+    })
+  );
+  return settled
+    .filter((s) => s.status === "fulfilled" && s.value)
+    .map((s) => s.value)
+    .filter((r) => r.severity !== "none");
 }
 
 // ─────────────────────────────────────────────
@@ -284,25 +288,29 @@ async function regulatoryChangeTracker(orgProfile) {
     { name: "SEC Cybersecurity", url: "https://www.sec.gov/spotlight/cybersecurity" },
   ];
 
-  const results = [];
-  for (const source of regulatorySources) {
-    if (!orgProfile.industries.some((ind) => isSourceRelevant(source.name, ind))) continue;
+  const relevantSources = regulatorySources.filter((source) =>
+    orgProfile.industries.some((ind) => isSourceRelevant(source.name, ind))
+  );
 
-    // Use Scraping Browser for JS-heavy regulatory portals
-    const rawContent = await scrapingBrowserFetch(source.url);
-    if (!rawContent) continue;
-
-    const riskObj = await analyzeWithClaude(
-      typeof rawContent === "string" ? rawContent.slice(0, 3000) : JSON.stringify(rawContent).slice(0, 3000),
-      "regulatory_change",
-      orgProfile
-    );
-    riskObj.source_name = source.name;
-    riskObj.source_url = source.url;
-    riskObj.detected_at = new Date().toISOString();
-    results.push(riskObj);
-  }
-  return results.filter((r) => r.severity !== "none" && r.severity !== "unknown");
+  const settled = await Promise.allSettled(
+    relevantSources.map(async (source) => {
+      const rawContent = await scrapingBrowserFetch(source.url);
+      if (!rawContent) return null;
+      const riskObj = await analyzeWithClaude(
+        typeof rawContent === "string" ? rawContent.slice(0, 3000) : JSON.stringify(rawContent).slice(0, 3000),
+        "regulatory_change",
+        orgProfile
+      );
+      riskObj.source_name = source.name;
+      riskObj.source_url = source.url;
+      riskObj.detected_at = new Date().toISOString();
+      return riskObj;
+    })
+  );
+  return settled
+    .filter((s) => s.status === "fulfilled" && s.value)
+    .map((s) => s.value)
+    .filter((r) => r.severity !== "none" && r.severity !== "unknown");
 }
 
 function isSourceRelevant(sourceName, industry) {
@@ -325,18 +333,12 @@ function isSourceRelevant(sourceName, industry) {
 async function vendorRiskRadar(orgProfile) {
   console.log("\n🏢 [Module 3] Vendor Risk Radar — using SERP API + Web Scraper API...");
 
-  const results = [];
-  for (const vendor of orgProfile.vendors) {
-    const queries = [
-      `"${vendor}" layoffs OR "data breach" OR bankruptcy 2024 2025`,
-      `"${vendor}" security incident OR breach OR hack`,
-    ];
-
-    for (const query of queries) {
+  const settled = await Promise.allSettled(
+    orgProfile.vendors.map(async (vendor) => {
+      const query = `"${vendor}" layoffs OR "data breach" OR bankruptcy OR "security incident" 2024 2025`;
       const serpResults = await brightDataSERP(query);
-      if (serpResults.length === 0) continue;
+      if (serpResults.length === 0) return null;
 
-      // Use Web Scraper API to fetch the top result for structured extraction
       let deepContent = null;
       if (serpResults[0].link && serpResults[0].link.startsWith("http")) {
         deepContent = await webScraperApiFetch(serpResults[0].link);
@@ -349,11 +351,13 @@ async function vendorRiskRadar(orgProfile) {
       const riskObj = await analyzeWithClaude(content, "vendor_risk", { ...orgProfile, target_vendor: vendor });
       riskObj.vendor = vendor;
       riskObj.detected_at = new Date().toISOString();
-      results.push(riskObj);
-      break;
-    }
-  }
-  return results.filter((r) => r.severity !== "none");
+      return riskObj;
+    })
+  );
+  return settled
+    .filter((s) => s.status === "fulfilled" && s.value)
+    .map((s) => s.value)
+    .filter((r) => r.severity !== "none");
 }
 
 // ─────────────────────────────────────────────
@@ -410,12 +414,20 @@ async function sendToSlack(report) {
     ],
   };
 
-  try {
-    await axios.post(SLACK_WEBHOOK_URL, payload, { timeout: 10000 });
-    console.log("\n✅ [Slack] Threat report sent successfully.");
-  } catch (err) {
-    console.error(`[Slack] Failed to send report: ${err.message}`);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await axios.post(SLACK_WEBHOOK_URL, payload, { timeout: 15000 });
+      console.log(`\n✅ [Slack] Threat report sent successfully. (${res.status} ${res.data})`);
+      return;
+    } catch (err) {
+      const detail = err.response
+        ? `HTTP ${err.response.status}: ${JSON.stringify(err.response.data)}`
+        : (err.message || "connection dropped");
+      console.error(`[Slack] Attempt ${attempt}/3 failed: ${detail}`);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
   }
+  console.error("[Slack] All 3 attempts failed — report not delivered.");
 }
 
 // ─────────────────────────────────────────────
