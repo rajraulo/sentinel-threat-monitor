@@ -1,0 +1,17 @@
+{
+  "name": "sentinel-threat-monitor",
+  "version": "1.0.0",
+  "description": "Open Web Threat & Risk Detection System — lablab.ai Hackathon Track 3",
+  "main": "src/sentinel.js",
+  "scripts": {
+    "start": "node src/sentinel.js",
+    "dev": "node --watch src/sentinel.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "axios": "^1.7.0"
+  },
+  "keywords": ["security", "threat-intelligence", "compliance", "bright-data", "claude-ai"],
+  "author": "Lingaraj Rawlo",
+  "license": "MIT"
+}
