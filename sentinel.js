@@ -28,6 +28,7 @@ const puppeteer = require("puppeteer-core");
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "YOUR_ANTHROPIC_KEY";
 const BRIGHT_DATA_API_KEY = process.env.BRIGHT_DATA_API_KEY || "YOUR_BRIGHTDATA_KEY";
 const BRIGHT_DATA_CUSTOMER_ID = process.env.BRIGHT_DATA_CUSTOMER_ID || "YOUR_CUSTOMER_ID";
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 
 // Tool 1: Web Unlocker
 const BRIGHT_DATA_WU_ZONE = process.env.BRIGHT_DATA_ZONE || "YOUR_WU_ZONE";
@@ -356,6 +357,68 @@ async function vendorRiskRadar(orgProfile) {
 }
 
 // ─────────────────────────────────────────────
+// SLACK — Send threat report
+// ─────────────────────────────────────────────
+async function sendToSlack(report) {
+  if (!SLACK_WEBHOOK_URL) return;
+
+  const severityEmoji = { critical: "🔴", high: "🟠", medium: "🟡", low: "🟢", unknown: "⚪" };
+
+  const alertBlocks = report.alerts
+    .filter((a) => ["critical", "high", "medium"].includes(a.severity))
+    .slice(0, 8)
+    .map((a) => ({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: [
+          `${severityEmoji[a.severity] || "⚪"} *${a.severity.toUpperCase()}* — ${a.type.replace(/_/g, " ").toUpperCase()}`,
+          `*Entity:* ${a.affected_entity}`,
+          `*Summary:* ${a.summary?.slice(0, 200)}${a.summary?.length > 200 ? "..." : ""}`,
+          `*Action:* ${a.recommended_action?.slice(0, 150)}${a.recommended_action?.length > 150 ? "..." : ""}`,
+          a.deadline ? `*Deadline:* ${a.deadline}` : "",
+        ].filter(Boolean).join("\n"),
+      },
+    }));
+
+  const payload = {
+    blocks: [
+      {
+        type: "header",
+        text: { type: "plain_text", text: `🛡️ Sentinel Threat Report — ${report.org}` },
+      },
+      {
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*Scan ID:*\n${report.scan_id}` },
+          { type: "mrkdwn", text: `*Scanned At:*\n${new Date(report.scanned_at).toUTCString()}` },
+          { type: "mrkdwn", text: `*Total Alerts:*\n${report.total_alerts}` },
+          { type: "mrkdwn", text: `*Severity:*\n🔴 ${report.critical} Critical  🟠 ${report.high} High  🟡 ${report.medium} Medium` },
+          { type: "mrkdwn", text: `*Scan Duration:*\n${(report.duration_ms / 1000).toFixed(1)}s` },
+        ],
+      },
+      { type: "divider" },
+      ...alertBlocks,
+      ...(report.total_alerts === 0
+        ? [{ type: "section", text: { type: "mrkdwn", text: "✅ No threats detected in this scan." } }]
+        : []),
+      { type: "divider" },
+      {
+        type: "context",
+        elements: [{ type: "mrkdwn", text: "Powered by *Sentinel* | Bright Data + Claude AI | lablab.ai Hackathon" }],
+      },
+    ],
+  };
+
+  try {
+    await axios.post(SLACK_WEBHOOK_URL, payload, { timeout: 10000 });
+    console.log("\n✅ [Slack] Threat report sent successfully.");
+  } catch (err) {
+    console.error(`[Slack] Failed to send report: ${err.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────
 // SENTINEL — Main orchestrator
 // ─────────────────────────────────────────────
 async function runSentinel(orgProfile) {
@@ -400,6 +463,8 @@ async function runSentinel(orgProfile) {
   console.log(`  Scan time: ${report.duration_ms}ms`);
   console.log("═══════════════════════════════════════════════");
   console.log(JSON.stringify(report, null, 2));
+
+  await sendToSlack(report);
 
   return report;
 }
