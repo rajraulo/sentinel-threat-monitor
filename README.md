@@ -121,7 +121,7 @@ cd sentinel-threat-monitor
 npm install
 ```
 
-This installs `@anthropic-ai/sdk` and `axios`. You should see a `node_modules/` folder appear.
+This installs `@anthropic-ai/sdk`, `axios`, and `puppeteer-core`. You should see a `node_modules/` folder appear.
 
 ---
 
@@ -211,11 +211,12 @@ The scan runs all three modules in parallel and prints a live report to the term
 ═══════════════════════════════════════════════
   SENTINEL — Open Web Threat & Risk Detection
   Target org: Your Company Name (yourcompany.com)
+  Bright Data tools: Web Unlocker | SERP API | Scraping Browser | Web Scraper API
 ═══════════════════════════════════════════════
 
-🔍 [Module 1] Threat Surface Monitor — scanning for credential leaks & breach signals...
-📋 [Module 2] Regulatory Change Tracker — scanning for compliance updates...
-🏢 [Module 3] Vendor Risk Radar — monitoring supplier risk signals...
+🔍 [Module 1] Threat Surface Monitor — using SERP API...
+📋 [Module 2] Regulatory Change Tracker — using Scraping Browser...
+🏢 [Module 3] Vendor Risk Radar — using SERP API + Web Scraper API...
 
 ═══════════════════════════════════════════════
   SENTINEL REPORT
@@ -270,48 +271,56 @@ const exampleOrgProfile = {
 ## Architecture
 
 ```
-                    ┌────────────────────────────┐
-                    │     SENTINEL ORCHESTRATOR   │
-                    │  (3 modules run in parallel) │
-                    └──────┬──────────┬───────────┘
-                           │          │          │
-              ┌────────────▼─┐  ┌─────▼────┐  ┌─▼──────────┐
-              │    Threat    │  │Regulatory│  │   Vendor   │
-              │   Surface    │  │  Change  │  │    Risk    │
-              │   Monitor    │  │  Tracker │  │    Radar   │
-              └──────┬───────┘  └────┬─────┘  └─────┬──────┘
-                     └───────────────┴───────────────┘
-                                     │
-                          ┌──────────▼──────────┐
-                          │   BRIGHT DATA        │
-                          │   Web Unlocker       │
-                          │   (brd.superproxy.io)│
-                          └──────────┬───────────┘
-                                     │
-                          ┌──────────▼──────────┐
-                          │     CLAUDE AI        │
-                          │  claude-sonnet-4-6   │
-                          │  Risk classification │
-                          │  Severity scoring    │
-                          │  Action generation   │
-                          └──────────┬───────────┘
-                                     │
-                          ┌──────────▼──────────┐
-                          │    RISK REPORT       │
-                          │    JSON output       │
-                          └─────────────────────┘
+                    ┌──────────────────────────────────┐
+                    │       SENTINEL ORCHESTRATOR       │
+                    │    (3 modules run in parallel)    │
+                    └───────┬────────────┬─────────────┘
+                            │            │            │
+           ┌────────────────▼─┐  ┌───────▼──────┐  ┌─▼────────────────┐
+           │  Threat Surface  │  │  Regulatory  │  │   Vendor Risk    │
+           │     Monitor      │  │    Change    │  │      Radar       │
+           │   [SERP API]     │  │   Tracker    │  │ [SERP API]       │
+           │                  │  │[Scraping     │  │ [Web Scraper API]│
+           │                  │  │  Browser]    │  │                  │
+           └────────┬─────────┘  └──────┬───────┘  └────────┬─────────┘
+                    └───────────────────┴───────────────────┘
+                                        │
+                    ┌───────────────────▼───────────────────┐
+                    │            BRIGHT DATA                 │
+                    │  ┌─────────────┐  ┌─────────────────┐ │
+                    │  │ Web Unlocker│  │   SERP API      │ │
+                    │  ├─────────────┤  ├─────────────────┤ │
+                    │  │  Scraping   │  │  Web Scraper    │ │
+                    │  │  Browser    │  │      API        │ │
+                    │  └─────────────┘  └─────────────────┘ │
+                    │         brd.superproxy.io              │
+                    └───────────────────┬───────────────────┘
+                                        │
+                    ┌───────────────────▼───────────────────┐
+                    │              CLAUDE AI                 │
+                    │           claude-sonnet-4-6            │
+                    │   Risk classification & severity       │
+                    │   Indicator extraction & actions       │
+                    └───────────────────┬───────────────────┘
+                                        │
+                    ┌───────────────────▼───────────────────┐
+                    │             RISK REPORT                │
+                    │          JSON output / SIEM            │
+                    └───────────────────────────────────────┘
 ```
 
 **Key functions:**
 
-| Function | Role |
-|---|---|
-| `brightDataFetch(url)` | Scrapes a URL through the Web Unlocker proxy |
-| `brightDataSERP(query)` | Searches DuckDuckGo via proxy, parses HTML results |
-| `analyzeWithClaude(content, type, org)` | Sends raw content to Claude, returns structured risk JSON |
-| `threatSurfaceMonitor(org)` | Module 1 — credential leak signals |
-| `regulatoryChangeTracker(org)` | Module 2 — compliance update signals |
-| `vendorRiskRadar(org)` | Module 3 — vendor risk signals |
+| Function | Bright Data Tool | Role |
+|---|---|---|
+| `brightDataFetch(url)` | Web Unlocker | Fetches any URL bypassing bot protection |
+| `brightDataSERP(query)` | SERP API → Web Unlocker fallback | Structured search results via SERP zone, falls back to DuckDuckGo |
+| `scrapingBrowserFetch(url)` | Scraping Browser → Web Unlocker fallback | Full JS-rendered page via cloud Puppeteer |
+| `webScraperApiFetch(url)` | Web Scraper API → Web Unlocker fallback | REST-based structured data extraction |
+| `analyzeWithClaude(content, type, org)` | — | Sends raw content to Claude, returns structured risk JSON |
+| `threatSurfaceMonitor(org)` | SERP API | Module 1 — credential leak signals |
+| `regulatoryChangeTracker(org)` | Scraping Browser | Module 2 — compliance update signals |
+| `vendorRiskRadar(org)` | SERP API + Web Scraper API | Module 3 — vendor risk signals |
 
 ---
 
