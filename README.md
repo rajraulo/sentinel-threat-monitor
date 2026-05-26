@@ -19,13 +19,25 @@ Sentinel fills that gap using Bright Data's Web Unlocker infrastructure and Clau
 
 ---
 
+## Bright Data Tools Used
+
+| Tool | Purpose | Module |
+|---|---|---|
+| **Web Unlocker** | Bypass bot protection for HTTPS page fetching | Module 2 (fallback) |
+| **SERP API** | Structured Google search results via dedicated SERP zone | Module 1, Module 3 |
+| **Scraping Browser** | Full JS-rendered scraping via cloud Puppeteer | Module 2 (regulatory portals) |
+| **Web Scraper API** | REST-based structured data extraction from top search results | Module 3 (vendor intel) |
+| **MCP Server** | AI-native tool integration — lets Claude query the web directly | Optional (see below) |
+
+---
+
 ## Three Detection Modules
 
-| Module | What It Scans | Signal Type |
-|---|---|---|
-| Threat Surface Monitor | Credential leaks, breach mentions, paste sites | `credential_leak` |
-| Regulatory Change Tracker | DORA, NIS2, GDPR, SEC updates | `regulatory_change` |
-| Vendor Risk Radar | Supplier breaches, layoffs, financial distress | `vendor_risk` |
+| Module | What It Scans | Bright Data Tool | Signal Type |
+|---|---|---|---|
+| Threat Surface Monitor | Credential leaks, breach dumps, paste sites | SERP API | `credential_leak` |
+| Regulatory Change Tracker | DORA, NIS2, GDPR, SEC updates | Scraping Browser | `regulatory_change` |
+| Vendor Risk Radar | Supplier breaches, layoffs, financial distress | SERP API + Web Scraper API | `vendor_risk` |
 
 All three modules run **in parallel**. Results are merged and sorted by severity into a single JSON report.
 
@@ -123,34 +135,43 @@ You need two accounts:
 2. Navigate to **API Keys** → **Create Key**
 3. Copy the key — it starts with `sk-ant-...`
 
-#### B. Bright Data (Web Unlocker)
+#### B. Bright Data
 
 1. Go to [brightdata.com](https://brightdata.com/) and sign up
-2. From the dashboard, click **Add Zone**
-3. Select product type: **Web Unlocker**
-4. Give your zone any name (e.g. `sentinel`)
-5. Save the zone
+2. From the dashboard, create **three zones** by clicking **Add Zone** for each:
 
-Now collect these three values:
-
-| What you need | Where to find it |
+| Zone type | Purpose |
 |---|---|
-| **Customer ID** | Dashboard → click your avatar (top right) → Account Settings. Looks like `hl_xxxxxxxx` |
-| **Zone name** | The name you gave the zone (e.g. `sentinel`) |
-| **Zone password** | Proxies & Scraping → your zone → **Access parameters** → Password field |
+| **Web Unlocker** | General HTTPS fetching with bot bypass (required) |
+| **SERP API** | Structured Google search results (recommended) |
+| **Scraping Browser** | JS-heavy regulatory portal scraping (recommended) |
+
+3. For each zone, go to → **Access parameters** and copy the zone name and password
+
+Your **Customer ID** is at Dashboard → avatar (top right) → Account Settings (format: `hl_xxxxxxxx`)
 
 ---
 
 ### Step 5 — Create your `.env` file
 
-In the project folder, create a file named `.env` (no extension) and paste the following, replacing the placeholder values:
+In the project folder, create a file named `.env` (no extension) and paste the following:
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 BRIGHT_DATA_API_KEY=your-bright-data-api-key
 BRIGHT_DATA_CUSTOMER_ID=hl_xxxxxxxx
-BRIGHT_DATA_ZONE=sentinel
-BRIGHT_DATA_ZONE_PASSWORD=your-zone-password
+
+# Tool 1: Web Unlocker (required)
+BRIGHT_DATA_ZONE=your-web-unlocker-zone-name
+BRIGHT_DATA_ZONE_PASSWORD=your-web-unlocker-password
+
+# Tool 2: SERP API (recommended — falls back to Web Unlocker if blank)
+BRIGHT_DATA_SERP_ZONE=your-serp-zone-name
+BRIGHT_DATA_SERP_PASSWORD=your-serp-zone-password
+
+# Tool 3: Scraping Browser (recommended — falls back to Web Unlocker if blank)
+BRIGHT_DATA_SB_ZONE=your-scraping-browser-zone-name
+BRIGHT_DATA_SB_PASSWORD=your-scraping-browser-password
 ```
 
 > **Never commit `.env` to Git.** It contains your private API keys.
@@ -313,12 +334,41 @@ const exampleOrgProfile = {
 
 ---
 
+## MCP Server Integration (Tool 5)
+
+Bright Data's MCP Server exposes all Bright Data tools as native AI functions, letting Claude query the web directly without any API wiring.
+
+**Setup:**
+
+```bash
+npm install -g @brightdata/mcp-server
+brightdata-mcp --api-key YOUR_BRIGHT_DATA_API_KEY
+```
+
+Then add to your Claude Desktop `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "brightdata": {
+      "command": "brightdata-mcp",
+      "args": ["--api-key", "YOUR_BRIGHT_DATA_API_KEY"]
+    }
+  }
+}
+```
+
+Once connected, Claude can use tools like `web_search`, `scrape_url`, and `get_serp_results` natively in conversation — no code changes needed.
+
+---
+
 ## Dependencies
 
 ```json
 {
   "@anthropic-ai/sdk": "^0.39.0",
-  "axios": "^1.7.0"
+  "axios": "^1.7.0",
+  "puppeteer-core": "^25.0.0"
 }
 ```
 

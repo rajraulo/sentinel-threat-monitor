@@ -9,9 +9,16 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "axios": "^1.7.0"
+    "axios": "^1.7.0",
+    "puppeteer-core": "^25.0.4"
   },
-  "keywords": ["security", "threat-intelligence", "compliance", "bright-data", "claude-ai"],
+  "keywords": [
+    "security",
+    "threat-intelligence",
+    "compliance",
+    "bright-data",
+    "claude-ai"
+  ],
   "author": "Lingaraj Rawlo",
   "license": "MIT"
 }
