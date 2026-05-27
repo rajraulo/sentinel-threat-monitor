@@ -18,63 +18,21 @@ const MODULES = [
 const ALL_INDUSTRIES = ['Financial Services', 'Technology', 'Healthcare', 'Energy', 'Retail']
 const ALL_FRAMEWORKS  = ['DORA', 'NIS2', 'GDPR', 'SEC', 'HIPAA', 'PCI-DSS']
 
-// ─── Claude system prompt (matches sentinel.js spirit) ────────────────────────
-const SYSTEM_PROMPT = `You are Sentinel, an AI security analyst. Generate realistic threat intelligence findings for a live interactive demo.
-Return ONLY a valid JSON array — no markdown, no preamble, no trailing text.
-
-Each object schema:
-{
-  "signal_id": "SNT-2025-XXXX",
-  "module": "threat_surface" | "regulatory" | "vendor_risk",
-  "type": "credential_leak" | "regulatory_change" | "vendor_risk" | "threat_indicator",
-  "severity": "critical" | "high" | "medium" | "low",
-  "confidence": 0.0-1.0,
-  "affected_entity": "string",
-  "summary": "1-2 sentence plain-English description specific to this org",
-  "recommended_action": "specific actionable next step for the security team",
-  "deadline": "ISO date string or null",
-  "indicators": ["3-5", "specific", "observable", "signals"],
-  "requires_immediate_action": true | false
-}`
-
-// ─── Anthropic API call ───────────────────────────────────────────────────────
-async function callClaude(apiKey, org) {
-  const prompt = `Analyze this organization and generate 7–9 realistic threat intelligence findings covering all three modules (threat_surface, regulatory, vendor_risk). Include at least 1 critical and 2 high severity findings. Be specific to their industry, vendors, and regulatory frameworks — name them explicitly.
-
-Organization:
-  Name: ${org.name}
-  Domain: ${org.domain}
-  Industries: ${org.industries.join(', ')}
-  Key Vendors: ${org.vendors.join(', ')}
-  Regulatory Frameworks: ${org.frameworks.join(', ')}
-
-Return a JSON array of findings only.`
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+// ─── API call via Vercel serverless function ──────────────────────────────────
+async function callClaude(org) {
+  const res = await fetch('/api/analyze', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
-      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ org }),
   })
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.error?.message || `API error ${res.status}`)
+    throw new Error(err.error || `Server error ${res.status}`)
   }
 
   const data = await res.json()
-  const raw = data.content[0].text.trim()
-    .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-  return JSON.parse(raw)
+  return data.findings
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -287,7 +245,6 @@ function AlertCard({ alert }) {
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_KEY || ''
   const [org, setOrg] = useState({
     name: 'Acme Financial Services',
     domain: 'acme-financial.com',
@@ -308,7 +265,6 @@ export default function App() {
   }
 
   async function runScan() {
-    if (!apiKey.trim()) { setError('API key not configured. Set VITE_ANTHROPIC_KEY in Vercel environment variables.'); return }
     setError(null)
     setReport(null)
     setScanning(true)
@@ -319,7 +275,7 @@ export default function App() {
     }
 
     try {
-      const findings = await callClaude(apiKey, fullOrg)
+      const findings = await callClaude(fullOrg)
       const sorted = [...findings].sort((a, b) => (SEV_ORDER[a.severity] ?? 4) - (SEV_ORDER[b.severity] ?? 4))
       setReport({
         scan_id: `SENTINEL-${Date.now()}`,
