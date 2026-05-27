@@ -287,7 +287,7 @@ function AlertCard({ alert }) {
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [apiKey, setApiKey] = useState(import.meta.env.VITE_ANTHROPIC_KEY || '')
+  const apiKey = import.meta.env.VITE_ANTHROPIC_KEY || ''
   const [org, setOrg] = useState({
     name: 'Acme Financial Services',
     domain: 'acme-financial.com',
@@ -308,7 +308,7 @@ export default function App() {
   }
 
   async function runScan() {
-    if (!apiKey.trim()) { setError('Enter your Anthropic API key above to run a scan.'); return }
+    if (!apiKey.trim()) { setError('API key not configured. Set VITE_ANTHROPIC_KEY in Vercel environment variables.'); return }
     setError(null)
     setReport(null)
     setScanning(true)
@@ -390,23 +390,6 @@ export default function App() {
           flexShrink: 0,
           overflowY: 'auto',
         }}>
-
-          {/* API Key */}
-          <Field label="ANTHROPIC API KEY">
-            <input
-              type="password"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              placeholder="sk-ant-..."
-              style={{
-                ...inputStyle,
-                border: `1px solid ${apiKey ? '#22d3ee44' : '#1f2937'}`,
-              }}
-            />
-            <div style={{ fontSize: 10, color: '#374151', marginTop: 5, lineHeight: 1.5 }}>
-              Or set <code style={{ color: '#6b7280' }}>VITE_ANTHROPIC_KEY</code> on Vercel.
-            </div>
-          </Field>
 
           <div style={{ borderTop: '1px solid #1e2a3a', margin: '4px 0 18px' }} />
 
