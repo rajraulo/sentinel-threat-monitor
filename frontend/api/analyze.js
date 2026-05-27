@@ -68,8 +68,71 @@ Return a JSON array of findings only.`;
       .replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 
     const findings = JSON.parse(raw);
+
+    // Fire-and-forget Slack alert (non-blocking)
+    sendSlackAlert(org, findings).catch(() => {});
+
     res.status(200).json({ findings });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
+async function sendSlackAlert(org, findings) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) return;
+
+  const SEV_EMOJI = { critical: "🔴", high: "🟠", medium: "🟡", low: "🟢" };
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  findings.forEach(f => { if (counts[f.severity] !== undefined) counts[f.severity]++; });
+
+  const critical = findings.filter(f => f.severity === "critical");
+  const high     = findings.filter(f => f.severity === "high");
+  const urgent   = [...critical, ...high].slice(0, 5);
+
+  const blocks = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `🛡️ Sentinel Scan Complete — ${org.name}`, emoji: true },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Domain:*\n${org.domain}` },
+        { type: "mrkdwn", text: `*Scanned:*\n${new Date().toUTCString()}` },
+        { type: "mrkdwn", text: `*Total Findings:*\n${findings.length}` },
+        { type: "mrkdwn", text: `*Severity Breakdown:*\n🔴 ${counts.critical} critical  🟠 ${counts.high} high  🟡 ${counts.medium} medium  🟢 ${counts.low} low` },
+      ],
+    },
+    { type: "divider" },
+  ];
+
+  if (urgent.length > 0) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Top Priority Alerts (${urgent.length}):*` },
+    });
+
+    urgent.forEach(f => {
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${SEV_EMOJI[f.severity] || "⚪"} *${f.signal_id}* — ${f.affected_entity}\n${f.summary}\n> *Action:* ${f.recommended_action}`,
+        },
+      });
+    });
+  }
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "context",
+    elements: [{ type: "mrkdwn", text: `Sentinel · Bright Data + Claude AI · lablab.ai Hackathon 2025` }],
+  });
+
+  await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blocks }),
+  });
+}
