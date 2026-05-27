@@ -25,7 +25,7 @@ module.exports = async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY || process.env.VITE_ANTHROPIC_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set in Vercel environment variables" });
 
-  const prompt = `Analyze this organization and generate 7–9 realistic threat intelligence findings covering all three modules (threat_surface, regulatory, vendor_risk). Include at least 1 critical and 2 high severity findings. Be specific to their industry, vendors, and regulatory frameworks — name them explicitly.
+  const prompt = `Analyze this organization and generate exactly 6 realistic threat intelligence findings covering all three modules (2 threat_surface, 2 regulatory, 2 vendor_risk). Include at least 1 critical and 2 high severity findings. Be specific to their industry, vendors, and regulatory frameworks — name them explicitly. Keep each summary and recommended_action concise (1 sentence each).
 
 Organization:
   Name: ${org.name}
@@ -43,10 +43,11 @@ Return a JSON array of findings only.`;
         "Content-Type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 3000,
+        max_tokens: 4096,
         system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: prompt }],
       }),
@@ -58,6 +59,11 @@ Return a JSON array of findings only.`;
     }
 
     const data = await response.json();
+
+    if (data.stop_reason === "max_tokens") {
+      return res.status(500).json({ error: "Response was truncated — try again or reduce findings count" });
+    }
+
     const raw = data.content[0].text.trim()
       .replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 
