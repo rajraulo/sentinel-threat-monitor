@@ -7,6 +7,61 @@ Sentinel is an AI-powered security intelligence tool that monitors the open web 
 
 ---
 
+## Live Demo
+
+**Try it now (no setup needed):** [sentinel-threat-monitor.vercel.app](https://sentinel-threat-monitor.vercel.app)
+
+1. Edit the org profile (name, domain, industries, vendors, frameworks)
+2. Click **Run Scan**
+3. Sentinel runs all three detection modules and returns severity-ranked alerts
+
+---
+
+## Frontend — Run Locally
+
+The interactive demo UI lives in the `frontend/` folder (React + Vite).
+
+**Prerequisites:** Node.js 18+
+
+```bash
+# 1. Go into the frontend folder
+cd frontend
+
+# 2. Install dependencies
+npm install
+
+# 3. Add your Anthropic key
+# Create frontend/.env.local and add:
+# VITE_ANTHROPIC_KEY=sk-ant-your-key-here
+
+# 4. Start the dev server
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+---
+
+## Frontend — Deploy to Vercel
+
+```bash
+# 1. Push the repo to GitHub (already done)
+git push origin main
+```
+
+2. Go to [vercel.com](https://vercel.com) → **Add New Project** → import `rajraulo/sentinel-threat-monitor`
+3. Leave **Root Directory** as default (repo root) — `vercel.json` handles the rest
+4. Click **Deploy**
+5. After deploy: **Settings → Environment Variables** → add:
+   ```
+   ANTHROPIC_API_KEY = sk-ant-your-key-here
+   ```
+6. Go to **Deployments** → **Redeploy** to pick up the key
+
+Every `git push` to `main` auto-redeploys.
+
+---
+
 ## The Problem
 
 Security teams have SIEMs, firewalls, and vulnerability scanners. But none of those tools monitor:
